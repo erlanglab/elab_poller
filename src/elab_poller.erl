@@ -9,5 +9,5 @@ microstate_accounting() ->
     undefined -> ok;
 
     List ->
-      [telemetry:execute([vm, microstate_accounting], Map, #{}) || Map <- List]
+      [telemetry:execute([vm, microstate_accounting], Map, #{time => calendar:local_time()}) || Map <- List]
   end.
