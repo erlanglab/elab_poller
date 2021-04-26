@@ -15,5 +15,5 @@ microstate_accounting() ->
 -spec allocator_sizes() -> ok.
 allocator_sizes() ->
   Keys = erlang:system_info(alloc_util_allocators),
-  Sizes_list = [{Alloc, erlang:system_info({allocator_sizes, Alloc})} || Alloc <- Keys],
-  telemetry:execute([vm, allocator_sizes], maps:from_list(Sizes_list), #{time => calendar:local_time(), keys => Keys}).
+  SizesList = [{Alloc, erlang:system_info({allocator_sizes, Alloc})} || Alloc <- Keys],
+  telemetry:execute([vm, allocator_sizes], maps:from_list(SizesList), #{time => calendar:local_time(), keys => Keys}).
