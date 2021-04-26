@@ -9,11 +9,11 @@ microstate_accounting() ->
     undefined -> ok;
 
     List ->
-      [telemetry:execute([vm, microstate_accounting], Map, #{time => calendar:local_time()}) || Map <- List]
+      [telemetry:execute([vm, microstate_accounting], maps:put(system_time, erlang:system_time(), Map), #{}) || Map <- List]
   end.
 
 -spec allocator_sizes() -> ok.
 allocator_sizes() ->
   Keys = erlang:system_info(alloc_util_allocators),
   SizesList = [{Alloc, erlang:system_info({allocator_sizes, Alloc})} || Alloc <- Keys],
-  telemetry:execute([vm, allocator_sizes], maps:from_list(SizesList), #{time => calendar:local_time(), keys => Keys}).
+  telemetry:execute([vm, allocator_sizes], maps:put(system_time, erlang:system_time(), maps:from_list(SizesList)), #{}).
