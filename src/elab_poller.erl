@@ -10,8 +10,8 @@ microstate_accounting() ->
 
     List ->
       Types = lists:usort([Type || #{type := Type} <- List]),
-      AggregatedCountList = aggregate_counts(List, Types, []),
-      [telemetry:execute([vm, microstate_accounting], maps:put(system_time, erlang:system_time(), Map), #{}) || Map <- AggregatedCountList]
+      AggregatedCountersList = aggregate_counters(List, Types, []),
+      [telemetry:execute([vm, microstate_accounting], maps:put(system_time, erlang:system_time(), Map), #{}) || Map <- AggregatedCountersList]
   end.
 
 -spec allocator_sizes() -> ok.
@@ -22,12 +22,12 @@ allocator_sizes() ->
 
 
 
--spec aggregate_counts([map()], [atom()], [map()]) -> [map()].
-aggregate_counts(_, [], AggregationList) -> AggregationList;
-aggregate_counts(List, [H|T], AggregationList) ->
-  {Satisfying, NotSatisfying} = lists:partition(fun(X) -> maps:get(type, X) == H end, List),
+-spec aggregate_counters([map()], [atom()], [map()]) -> [map()].
+aggregate_counters(_, [], AggregationList) -> AggregationList;
+aggregate_counters(Measurements, [H|T], AggregationList) ->
+  {Satisfying, NotSatisfying} = lists:partition(fun(X) -> maps:get(type, X) == H end, Measurements),
   AggregatedSum = lists:foldr(fun aggregate_sum/2, #{}, Satisfying),
-  aggregate_counts(NotSatisfying, T, AggregationList ++ [#{counters => AggregatedSum, type => H}]).
+  aggregate_counters(NotSatisfying, T, AggregationList ++ [#{counters => AggregatedSum, type => H}]).
 
 -spec aggregate_sum(map(), map()) -> map().
 aggregate_sum(Map, AggregatedCounters) when map_size(AggregatedCounters) == 0 ->
