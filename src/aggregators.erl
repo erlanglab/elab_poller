@@ -13,20 +13,80 @@ microstate_accounting_aggregator(
     _metadata,
     _config
 ) ->
-  % .csv format -> "scheduler type","scheduler state","counter","system time"
+    % .csv format -> "scheduler type","scheduler state","counter","system time"
     case file:open("microstate_accounting_results.csv", [append]) of
       {ok, Fd} ->
         [io:format(
           Fd,
           "~s,~s,~w,~w~n",
           [Type, State, Counter, Time]
-        ) || {State, Counter} <- maps:to_list(Counters)];
+        ) || {State, Counter} <- maps:to_list(Counters)],
+        file:close(Fd);
 
       {error, Reason} ->
         io:format("Couldn't open file due to ~w~n", [Reason])
     end.
 
 allocator_sizes_aggregator([vm, allocator_sizes], Map, _metadata, _config) ->
-    [io:format("key: ~w, value: ~w~n~n", [Key, maps:get(Key, Map)]) || Key <- maps:keys(Map)].
+  {Time, AllocatorsMap} = maps:take(system_time, Map),
+  [parse_values(Key, maps:get(Key, AllocatorsMap), Time) || Key <- maps:keys(AllocatorsMap)].
 
+
+parse_values(_, [], _) ->
+  ok;
+parse_values(Key, [H|T], Time) ->
+  {instance, InstanceNo, InstanceInfo} = H,
+  [save_to_file(Key, Time, InstanceNo, Info) || Info <- InstanceInfo],
+  parse_values(Key, T, Time).
+
+
+save_to_file(_, _, _, {_, []}) ->
+  ok;
+save_to_file(Key, Time, InstanceNo, {Bcs, [H|T]}) ->
+  % .csv format -> "allocator name","instance number","block carrier","bcs properties","current size","max size since last call","max size","system time"
+  case file:open("allocator_sizes_results.csv", [append]) of
+    {ok, Fd} ->
+      case tuple_size(H) of
+        2 ->
+          {Name, Size} = H,
+          case is_number(Size) of
+            true -> io:format(
+              Fd,
+              "~s,~w,~s,~s,~w,~w,~w,~w~n",
+              [Key, InstanceNo, Bcs, Name, Size, Size, Size, Time]
+            );
+
+            _ ->io:format(
+              Fd,
+              "~s,~w,~s,~s,-1,-1,-1,~w~n",
+              [Key, InstanceNo, Bcs, Name, Time]
+            )
+          end;
+
+        3 ->
+          {Name, CurrentSize, MaxSize} = H,
+          io:format(
+            Fd,
+            "~s,~w,~s,~s,~w,~w,~w,~w~n",
+            [Key, InstanceNo, Bcs, Name, CurrentSize, MaxSize, MaxSize, Time]
+          );
+
+        4 ->
+          {Name, CurrentSize, MaxSize, MaxSizeEver} = H,
+          io:format(
+            Fd,
+            "~s,~w,~s,~s,~w,~w,~w,~w~n",
+            [Key, InstanceNo, Bcs, Name, CurrentSize, MaxSize, MaxSizeEver, Time]
+          );
+
+        _ ->
+          io:format("Unsupported tuple size: ~w~n", [H])
+
+      end,
+      file:close(Fd);
+
+    {error, Reason} ->
+      io:format("Couldn't open file due to ~w~n", [Reason])
+  end,
+  save_to_file(Key, Time, InstanceNo, {Bcs, T}).
 
