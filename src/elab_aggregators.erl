@@ -1,4 +1,4 @@
--module(aggregators).
+-module(elab_aggregators).
 
 %% API
 -export([
@@ -23,77 +23,87 @@ microstate_accounting_aggregator(
     % .csv format -> "scheduler type","scheduler state","counter","system time"
     case file:open("microstate_accounting_results.csv", [append]) of
         {ok, Fd} ->
-            [
+            lists:foreach(fun({State, Counter}) ->
                 io:format(
                     Fd,
                     "~s,~s,~w,~w~n",
-                    [Type, State, Counter, SysTime]
-                )
-             || {State, Counter} <- maps:to_list(Counters)
-            ],
+                    [Type, State, Counter, SysTime]) end,
+                maps:to_list(Counters)),
             file:close(Fd);
         {error, Reason} ->
-            io:format("Couldn't open file due to ~w~n", [Reason])
+            logger:error("Couldn't open file due to ~w~n", [Reason])
     end.
 
 -spec allocator_sizes_aggregator([atom()], map(), map(), term()) -> ok.
 allocator_sizes_aggregator([vm, allocator_sizes], Map, _metadata, _config) ->
     {SysTime, AllocatorsMap} = maps:take(system_time, Map),
-    [parse_values(Key, maps:get(Key, AllocatorsMap), SysTime) || Key <- maps:keys(AllocatorsMap)].
+    lists:foreach(fun(Key) -> parse_values(Key, maps:get(Key, AllocatorsMap), SysTime) end, maps:keys(AllocatorsMap)).
 
 -spec parse_values(atom(), [{atom(), non_neg_integer(), [tuple()]}], non_neg_integer()) -> ok.
 parse_values(_, [], _) ->
     ok;
 parse_values(Key, [H | T], SysTime) ->
     {instance, InstanceNo, InstanceInfo} = H,
-    [save_to_file(Key, SysTime, InstanceNo, Info) || Info <- InstanceInfo],
+    lists:foreach(fun(Info) -> save_to_file(Key, SysTime, InstanceNo, Info) end, InstanceInfo),
     parse_values(Key, T, SysTime).
 
 -spec save_to_file(atom(), non_neg_integer(), non_neg_integer(), {atom(), [tuple()]}) -> ok.
+% .csv format -> "allocator name","instance number","block carrier","bcs properties",
+% "current size","max size since last call","max size","system time"
 save_to_file(_, _, _, {_, []}) ->
     ok;
-save_to_file(Key, SysTime, InstanceNo, {Bcs, [H | T]}) ->
-    % .csv format -> "allocator name","instance number","block carrier","bcs properties",
-    % "current size","max size since last call","max size","system time"
+save_to_file(_, _, _, {H, _}) when tuple_size(H) > 4 ->
+    logger:error("Unsupported tuple size: ~w~n", [H]);
+save_to_file(Key, SysTime, InstanceNo, {Bcs, [{Name, Size} | T]}) when is_number(Size) ->
     case file:open("allocator_sizes_results.csv", [append]) of
         {ok, Fd} ->
-            case tuple_size(H) of
-                2 ->
-                    {Name, Size} = H,
-                    case is_number(Size) of
-                        true ->
-                            io:format(
-                                Fd,
-                                "~s,~w,~s,~s,~w,~w,~w,~w~n",
-                                [Key, InstanceNo, Bcs, Name, Size, Size, Size, SysTime]
-                            );
-                        _ ->
-                            io:format(
-                                Fd,
-                                "~s,~w,~s,~s,-1,-1,-1,~w~n",
-                                [Key, InstanceNo, Bcs, Name, SysTime]
-                            )
-                    end;
-                3 ->
-                    {Name, CurrentSize, MaxSize} = H,
-                    io:format(
-                        Fd,
-                        "~s,~w,~s,~s,~w,~w,~w,~w~n",
-                        [Key, InstanceNo, Bcs, Name, CurrentSize, MaxSize, MaxSize, SysTime]
-                    );
-                4 ->
-                    {Name, CurrentSize, MaxSize, MaxSizeEver} = H,
-                    io:format(
-                        Fd,
-                        "~s,~w,~s,~s,~w,~w,~w,~w~n",
-                        [Key, InstanceNo, Bcs, Name, CurrentSize, MaxSize, MaxSizeEver, SysTime]
-                    );
-                _ ->
-                    io:format("Unsupported tuple size: ~w~n", [H])
-            end,
+            io:format(
+                Fd,
+                "~s,~w,~s,~s,~w,~w,~w,~w~n",
+                [Key, InstanceNo, Bcs, Name, Size, Size, Size, SysTime]
+            ),
             file:close(Fd);
         {error, Reason} ->
-            io:format("Couldn't open file due to ~w~n", [Reason])
+            logger:error("Couldn't open file due to ~w~n", [Reason])
+    end,
+    save_to_file(Key, SysTime, InstanceNo, {Bcs, T});
+save_to_file(Key, SysTime, InstanceNo, {Bcs, [{Name, _} | T]}) ->
+    case file:open("allocator_sizes_results.csv", [append]) of
+        {ok, Fd} ->
+            io:format(
+                Fd,
+                "~s,~w,~s,~s,-1,-1,-1,~w~n",
+                [Key, InstanceNo, Bcs, Name, SysTime]
+            ),
+            file:close(Fd);
+        {error, Reason} ->
+            logger:error("Couldn't open file due to ~w~n", [Reason])
+    end,
+    save_to_file(Key, SysTime, InstanceNo, {Bcs, T});
+save_to_file(Key, SysTime, InstanceNo, {Bcs, [{Name, CurrentSize, MaxSize} | T]}) ->
+    case file:open("allocator_sizes_results.csv", [append]) of
+        {ok, Fd} ->
+            io:format(
+                Fd,
+                "~s,~w,~s,~s,~w,~w,~w,~w~n",
+                [Key, InstanceNo, Bcs, Name, CurrentSize, MaxSize, MaxSize, SysTime]
+            ),
+            file:close(Fd);
+        {error, Reason} ->
+            logger:error("Couldn't open file due to ~w~n", [Reason])
+    end,
+    save_to_file(Key, SysTime, InstanceNo, {Bcs, T});
+save_to_file(Key, SysTime, InstanceNo, {Bcs, [{Name, CurrentSize, MaxSize, MaxSizeEver} | T]}) ->
+    case file:open("allocator_sizes_results.csv", [append]) of
+        {ok, Fd} ->
+            io:format(
+                Fd,
+                "~s,~w,~s,~s,~w,~w,~w,~w~n",
+                [Key, InstanceNo, Bcs, Name, CurrentSize, MaxSize, MaxSizeEver, SysTime]
+            ),
+            file:close(Fd);
+        {error, Reason} ->
+            logger:error("Couldn't open file due to ~w~n", [Reason])
     end,
     save_to_file(Key, SysTime, InstanceNo, {Bcs, T}).
 
@@ -103,17 +113,10 @@ memory_aggregator([vm, memory], Map, _metadata, _config) ->
     % .csv format -> "type","size","system time"
     case file:open("memory_results.csv", [append]) of
         {ok, Fd} ->
-            [
-                io:format(
-                    Fd,
-                    "~s,~w,~w~n",
-                    [Key, maps:get(Key, Map), SysTime]
-                )
-             || Key <- maps:keys(Map)
-            ],
+            lists:foreach(fun(Key) -> io:format(Fd, "~s,~w,~w~n", [Key, maps:get(Key, Map), SysTime]) end, maps:keys(Map)),
             file:close(Fd);
         {error, Reason} ->
-            io:format("Couldn't open file due to ~w~n", [Reason])
+            logger:error("Couldn't open file due to ~w~n", [Reason])
     end.
 
 -spec total_run_queue_lengths_aggregator([atom()], map(), map(), term()) -> ok.
@@ -146,7 +149,7 @@ system_counts_aggregator([vm, system_counts], Map, _metadata, _config) ->
             ),
             file:close(Fd);
         {error, Reason} ->
-            io:format("Couldn't open file due to ~w~n", [Reason])
+            logger:error("Couldn't open file due to ~w~n", [Reason])
     end.
 -else.
 -spec system_counts_aggregator([atom()], map(), map(), term()) -> ok.
@@ -167,6 +170,6 @@ system_counts_aggregator([vm, system_counts], Map, _metadata, _config) ->
             ),
             file:close(Fd);
         {error, Reason} ->
-            io:format("Couldn't open file due to ~w~n", [Reason])
+            logger:error("Couldn't open file due to ~w~n", [Reason])
     end.
 -endif.
