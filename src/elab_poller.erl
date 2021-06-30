@@ -10,7 +10,16 @@ microstate_accounting() ->
         List ->
             Types = lists:usort([Type || #{type := Type} <- List]),
             AggregatedCountersList = aggregate_counters(List, Types, []),
-            lists:foreach(fun(Map) -> telemetry:execute([vm, microstate_accounting], maps:put(system_time, erlang:system_time(), Map), #{}) end, AggregatedCountersList)
+            lists:foreach(
+                fun(Map) ->
+                    telemetry:execute(
+                        [vm, microstate_accounting],
+                        maps:put(system_time, erlang:system_time(), Map),
+                        #{}
+                    )
+                end,
+                AggregatedCountersList
+            )
     end.
 
 -spec allocator_sizes() -> ok.
